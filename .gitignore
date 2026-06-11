@@ -250,3 +250,17 @@ model_cache/
 # Environment
 .env.local
 .env.production
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Docker
+postgres_data/
+
+# IDE
+.vscode/
+.idea/
