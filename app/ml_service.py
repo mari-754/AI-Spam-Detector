@@ -1,60 +1,55 @@
-from transformers import pipeline
-import logging
-import os
-from typing import Dict, Any
+# ml_service.py
+from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
+import torch
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- Инициализация модели (глобально, при старте приложения) ---
+MODEL_NAME = "AventIQ-AI/distilbert-spam-detector"
+model = None
+tokenizer = None
 
-class SpamDetector:
-    _instance = None
+def load_model():
+    """Загружает модель и токенизатор (вызывается один раз при старте)."""
+    global model, tokenizer
+    if model is None:
+        print("Загрузка модели DistilBERT для определения спама...")
+        # Загружаем модель и токенизатор с Hugging Face
+        model = DistilBertForSequenceClassification.from_pretrained(MODEL_NAME)
+        tokenizer = DistilBertTokenizerFast.from_pretrained(MODEL_NAME)
+        # Переводим в режим оценки и в половину точности (fp16) для ускорения
+        model.eval()
+        model.half()
+        print("Модель успешно загружена.")
+    return model, tokenizer
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
+def predict_spam(text: str) -> str:
+    """
+    Определяет, является ли текст спамом.
+    Возвращает "Spam" или "Not Spam".
+    """
+    model, tokenizer = load_model()
+    
+    # Токенизируем входной текст
+    inputs = tokenizer(
+        text, 
+        return_tensors="pt", 
+        truncation=True, 
+        padding=True, 
+        max_length=128
+    )
+    
+    # Делаем предсказание
+    with torch.no_grad():
+        outputs = model(**inputs)
+        predicted_class = torch.argmax(outputs.logits, dim=1).item()
+    
+    label_map = {0: "Not Spam", 1: "Spam"}
+    return label_map[predicted_class]
 
-    def _initialize(self):
-        model_name = os.getenv("MODEL_NAME", "mrm8488/bert-tiny-finetuned-sms-spam-detection")
-        try:
-            logger.info(f"Loading model: {model_name}")
-            # device=-1 means use CPU (important for college computers)
-            self.classifier = pipeline("text-classification", model=model_name, device=-1)
-            self.model_name = model_name
-            logger.info("Model loaded successfully!")
-        except Exception as e:
-            logger.error(f"Failed to load model: {e}")
-            raise
+# --- Пример функции, которая может быть в вашем существующем файле ---
+# Если у вас уже были функции для работы со спамом, вы можете их переписать,
+# используя новую функцию predict_spam. Например:
 
-    def predict(self, text: str) -> Dict[str, Any]:
-        try:
-            # Get prediction
-            result = self.classifier(text)[0]
-
-            # Convert labels to SPAM/NOT SPAM format
-            label = result['label']
-            score = result['score']
-
-            # Handle different label formats from different models
-            if label in ['LABEL_1', 'SPAM', 'spam', '1']:
-                result_label = "SPAM"
-            elif label in ['LABEL_0', 'NOT SPAM', 'not_spam', 'ham', '0']:
-                result_label = "NOT SPAM"
-            else:
-                # Fallback: if it's already SPAM/NOT SPAM
-                result_label = label.upper()
-
-            logger.info(f"Prediction: {result_label} with confidence {score:.3f}")
-
-            return {
-                "result": result_label,
-                "score": round(score, 3),
-                "model_name": self.model_name
-            }
-        except Exception as e:
-            logger.error(f"Prediction error: {e}")
-            raise
-
-# Create singleton instance
-spam_detector = SpamDetector()
+# def analyze_message(message_text: str):
+#     prediction = predict_spam(message_text)
+#     # ... ваша логика сохранения результата в БД и т.д. ...
+#     return {"message": message_text, "prediction": prediction}
